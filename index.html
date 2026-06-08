@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Projeto Likes + Comentários</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { max-width: 700px; margin: 40px auto; padding: 0 20px; background: #fafafa; color: #111; }
+    h1 { font-size: 2rem; margin-bottom: 8px; }
+    .card { background: white; border: 1px solid #e5e5e5; border-radius: 12px; padding: 24px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    button { cursor: pointer; border: none; border-radius: 8px; padding: 10px 16px; font-weight: 600; }
+    #likeBtn { background: #f1f5f9; display: flex; align-items: center; gap: 8px; }
+    #likeBtn.liked { background: #ffe4e6; color: #e11d48; }
+    #likeBtn:hover { opacity: 0.8; }
+    form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+    input, textarea { padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; }
+    textarea { resize: vertical; min-height: 80px; }
+    form button { background: #111; color: white; align-self: flex-start; }
+    .comment { padding: 12px 0; border-bottom: 1px solid #eee; }
+    .comment:last-child { border-bottom: none; }
+    .comment-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .author { font-weight: 600; }
+    .date { color: #666; font-size: 0.85rem; }
+    #loading { color: #666; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm"
+      }
+    }
+  </script>
+</head>
+<body>
+  <h1>Aqui seu comentário persiste, nós três, sempre foi e será nós 3</h1>
+  <p>Feito com Supabase + Netlify + Github</p>
+
+  <div class="card">
+    <h2 id="postTitle">Carregando...</h2>
+    <button id="likeBtn">
+      <span id="likeIcon">🤍</span>
+      <span id="likeCount">0</span> curtidas
+    </button>
+  </div>
+
+  <div class="card">
+    <h3>Comentários</h3>
+    <div id="commentsList">
+      <p id="loading">Carregando comentários...</p>
+    </div>
+
+    <form id="commentForm">
+      <input type="text" id="authorInput" placeholder="Seu nome" required maxlength="50">
+      <textarea id="contentInput" placeholder="Escreva um comentário..." required maxlength="500"></textarea>
+      <button type="submit">Enviar comentário</button>
+    </form>
+  </div>
+
+  <script type="module">
+    import { createClient } from '@supabase/supabase-js'
+
+    // 1. COLOQUE SUAS CREDENCIAIS AQUI
+    const SUPABASE_URL = 'https://kbyovzzizbibsrewdspn.supabase.co'
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtieW92enppemJpYnNyZXdkc3BuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1MDEwMTEsImV4cCI6MjA5NjA3NzAxMX0.Nu8yY9Iu7wN-B537KNpen0iInjYXWjIjAlRD5S2sXnI'
+    const POST_SLUG = 'pagina-principal' // slug do post na tabela posts
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    
+    // Gera um ID único por visitante e salva no localStorage
+    let visitorId = localStorage.getItem('visitor_id')
+    if (!visitorId) {
+      visitorId = crypto.randomUUID()
+      localStorage.setItem('visitor_id', visitorId)
+    }
+
+    let currentPostId = null
+    let userHasLiked = false
+
+    const likeBtn = document.getElementById('likeBtn')
+    const likeIcon = document.getElementById('likeIcon')
+    const likeCount = document.getElementById('likeCount')
+    const commentsList = document.getElementById('commentsList')
+    const commentForm = document.getElementById('commentForm')
+
+    // Carrega dados iniciais
+    async function loadPost() {
+      // Busca o post
+      const { data: post } = await supabase
+        .from('posts')
+        .select('id, title')
+        .eq('slug', POST_SLUG)
+        .single()
+      
+      if (!post) return
+      currentPostId = post.id
+      document.getElementById('postTitle').textContent = post.title
+
+      // Busca total de likes e se usuário já curtiu
+      const [{ count }, { data: userLike }] = await Promise.all([
+        supabase.from('likes').select('*', { count: 'exact', head: true }).eq('post_id', post.id),
+        supabase.from('likes').select('id').eq('post_id', post.id).eq('visitor_id', visitorId).maybeSingle()
+      ])
+      
+      likeCount.textContent = count || 0
+      userHasLiked = !!userLike
+      updateLikeButton()
+      
+      loadComments()
+    }
+
+    function updateLikeButton() {
+      likeBtn.classList.toggle('liked', userHasLiked)
+      likeIcon.textContent = userHasLiked ? '❤️' : '🤍'
+    }
+
+    // Toggle like
+    likeBtn.addEventListener('click', async () => {
+      if (!currentPostId) return
+      
+if (userHasLiked) {
+        await supabase.from('likes').delete().eq('post_id', currentPostId).eq('visitor_id', visitorId)
+        likeCount.textContent = parseInt(likeCount.textContent) - 1
+      } else {
+        await supabase.from('likes').insert({ post_id: currentPostId, visitor_id: visitorId })
+        likeCount.textContent = parseInt(likeCount.textContent) + 1
+      }
+      userHasLiked = !userHasLiked
+      updateLikeButton()
+    })
+
+    // Carrega comentários
+    async function loadComments() {
+      const { data: comments } = await supabase
+        .from('comments')
+        .select('*')
+        .eq('post_id', currentPostId)
+        .order('created_at', { ascending: false })
+
+      if (!comments.length) {
+        commentsList.innerHTML = '<p style="color:#666">Seja o primeiro a comentar!</p>'
+        return
+      }
+
+      commentsList.innerHTML = comments.map(c => `
+        <div class="comment">
+          <div class="comment-header">
+            <span class="author">${escapeHtml(c.author_name)}</span>
+            <span class="date">${new Date(c.created_at).toLocaleString('pt-BR')}</span>
+          </div>
+          <p>${escapeHtml(c.content)}</p>
+        </div>
+      `).join('')
+    }
+
+    // Envia comentário
+    commentForm.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      const author = document.getElementById('authorInput').value.trim()
+      const content = document.getElementById('contentInput').value.trim()
+      
+      await supabase.from('comments').insert({
+        post_id: currentPostId,
+        author_name: author,
+        content: content
+      })
+      
+      e.target.reset()
+      loadComments()
+    })
+
+    // Realtime: atualiza quando alguém comenta
+    supabase.channel('comments')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'comments' }, loadComments)
+      .subscribe()
+
+    function escapeHtml(text) {
+      const div = document.createElement('div')
+      div.textContent = text
+      return div.innerHTML
+    }
+
+    loadPost()
+  </script>
+</body>
+</html>
