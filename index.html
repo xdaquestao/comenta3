@@ -3,192 +3,107 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Projeto Likes + Comentários</title>
+  <title>Comentários</title>
   <style>
-    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
-    body { max-width: 700px; margin: 40px auto; padding: 0 20px; background: #fafafa; color: #111; }
-    h1 { font-size: 2rem; margin-bottom: 8px; }
-   .card { background: white; border: 1px solid #e5e5e5; border-radius: 12px; padding: 24px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-    button { cursor: pointer; border: none; border-radius: 8px; padding: 10px 16px; font-weight: 600; }
-    #likeBtn { background: #f1f5f9; display: flex; align-items: center; gap: 8px; }
-    #likeBtn.liked { background: #ffe4e6; color: #e11d48; }
-    #likeBtn:hover { opacity: 0.8; }
-    #likeBtn:disabled { opacity: 0.5; cursor: not-allowed; }
-    form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
-    input, textarea { padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; }
-    textarea { resize: vertical; min-height: 80px; }
-    form button { background: #111; color: white; align-self: flex-start; }
-    form button:disabled { opacity: 0.5; cursor: not-allowed; }
-   .comment { padding: 12px 0; border-bottom: 1px solid #eee; }
-   .comment:last-child { border-bottom: none; }
-   .comment-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
-   .author { font-weight: 600; }
-   .date { color: #666; font-size: 0.85rem; }
-    #loading { color: #666; }
-    #erro { color: #e11d48; margin-top: 10px; font-size: 0.9rem; }
+    body { font-family: system-ui; max-width: 600px; margin: 40px auto; padding: 0 20px; }
+    #comments { margin: 20px 0; }
+    .comment { border-bottom: 1px solid #ddd; padding: 12px 0; }
+    .comment p { margin: 0; }
+    .comment small { color: #666; }
+    form { display: flex; gap: 8px; margin-top: 20px; }
+    input { flex: 1; padding: 8px; }
+    button { padding: 8px 16px; }
+    #erro { color: red; margin-top: 10px; }
   </style>
 </head>
+
 <body>
-  <h1>Aqui seu comentário persiste, nós três, sempre foi e será nós 3</h1>
-  <p>Feito com Supabase + Netlify + Github</p>
 
-  <div class="card">
-    <h2 id="postTitle">Carregando...</h2>
-    <button id="likeBtn" disabled>
-      <span id="likeIcon">🤍</span>
-      <span id="likeCount">0</span> curtidas
-    </button>
-  </div>
+  <h1>Comentários do Post #42</h1>
 
-  <div class="card">
-    <h3>Comentários</h3>
-    <div id="commentsList">
-      <p id="loading">Carregando comentários...</p>
-    </div>
+  <div id="comments">Carregando...</div>
 
-    <form id="commentForm">
-      <input type="text" id="authorInput" placeholder="Seu nome" required maxlength="50">
-      <textarea id="contentInput" placeholder="Escreva um comentário..." required maxlength="500"></textarea>
-      <button type="submit">Enviar comentário</button>
-      <div id="erro"></div>
-    </form>
-  </div>
+  <form id="form-comment">
+    <input 
+      type="text" 
+      id="input-texto" 
+      placeholder="Escreva um comentário..." 
+      maxlength="500"
+      required
+    >
+    <button type="submit">Enviar</button>
+  </form>
+  
+  <div id="erro"></div>
+
 <script>
-    // 1. TROCA PELA URL DA SUA EDGE FUNCTION
-    const API = 'https://seu-projeto.supabase.co/functions/v1/proxy-supabase'
-    const POST_SLUG = 'pagina-principal'
+const API = 'https://seu-projeto.supabase.co/functions/v1/proxy-supabase'
+const POST_ID = 42 // Troca pro ID do seu post
 
-    // Gera um ID único por visitante e salva no localStorage
-    let visitorId = localStorage.getItem('visitor_id')
-    if (!visitorId) {
-      visitorId = crypto.randomUUID()
-      localStorage.setItem('visitor_id', visitorId)
-    }
+const commentsDiv = document.getElementById('comments')
+const form = document.getElementById('form-comment')
+const input = document.getElementById('input-texto')
+const erroDiv = document.getElementById('erro')
 
-    let currentPostId = null
-    let userHasLiked = false
+// Chama a Edge Function
+async function callApi(action, payload) {
+  const res = await fetch(API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, payload })
+  })
 
-    const likeBtn = document.getElementById('likeBtn')
-    const likeIcon = document.getElementById('likeIcon')
-    const likeCount = document.getElementById('likeCount')
-    const commentsList = document.getElementById('commentsList')
-    const commentForm = document.getElementById('commentForm')
-  const erroDiv = document.getElementById('erro')
+  const result = await res.json()
+  if (!res.ok) throw new Error(result.error || 'Erro na requisição')
+  return result.data
+}
 
-    // Função única pra chamar a Edge Function
-    async function callApi(action, payload) {
-      const res = await fetch(API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, payload })
-      })
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.error || 'Erro na requisição')
-      return result.data
-    }
-
-    // Carrega dados iniciais
-    async function loadPost() {
-      try {
-        const data = await callApi('get-post-data', {
-          slug: POST_SLUG,
-          visitor_id: visitorId
-        })
-
-        if (!data.post) return
-        currentPostId = data.post.id
-        document.getElementById('postTitle').textContent = data.post.title
-
-        likeCount.textContent = data.like_count || 0
-        userHasLiked = data.user_has_liked
-        updateLikeButton()
-        likeBtn.disabled = false
-
-        renderComments(data.comments)
-      } catch (e) {
-        document.getElementById('postTitle').textContent = 'Erro ao carregar'
-        commentsList.innerHTML = '<p style="color:#666">Erro ao carregar comentários.</p>'
-      }
+// Renderiza comentários na tela
+function renderComments(comentarios) {
+  if (!comentarios.length) {
+    commentsDiv.innerHTML = '<p>Nenhum comentário ainda.</p>'
+    return
   }
-   function updateLikeButton() {
-      likeBtn.classList.toggle('liked', userHasLiked)
-      likeIcon.textContent = userHasLiked? '❤' : '🤍'
-    }
+  
+  commentsDiv.innerHTML = comentarios.map(c => `
+    <div class="comment">
+      <p>${c.texto}</p>
+      <small>${new Date(c.created_at).toLocaleString('pt-BR')}</small>
+    </div>
+  `).join('')
+}
+  // Carrega comentários ao abrir a página
+async function carregarComentarios() {
+  try {
+    erroDiv.textContent = ''
+    const comentarios = await callApi('list-comments', { post_id: POST_ID })
+    renderComments(comentarios)
+  } catch (e) {
+    commentsDiv.innerHTML = '<p>Erro ao carregar comentários.</p>'
+    erroDiv.textContent = e.message
+  }
+}
+  // Envia novo comentário
+form.addEventListener('submit', async (e) => {
+  e.preventDefault()
+  const texto = input.value.trim()
+  if (!texto) return
 
-    // Toggle like
-    likeBtn.addEventListener('click', async () => {
-      if (!currentPostId) return
-      likeBtn.disabled = true
+  try {
+    erroDiv.textContent = ''
+    input.disabled = true
+    await callApi('add-comment', { post_id: POST_ID, texto })
+    input.value = ''
+    await carregarComentarios() // Recarrega a lista
+  } catch (e) {
+    erroDiv.textContent = e.message
+  } finally {
+    input.disabled = false
+  }
+})
+  // Inicia
+carregarComentarios()
+</script>
 
-      try {
-        if (userHasLiked) {
-          await callApi('unlike-post', { post_id: currentPostId, visitor_id: visitorId })
-          likeCount.textContent = parseInt(likeCount.textContent) - 1
-        } else {
-          await callApi('like-post', { post_id: currentPostId, visitor_id: visitorId })
-          likeCount.textContent = parseInt(likeCount.textContent) + 1
-        }
-        userHasLiked =!userHasLiked
-        updateLikeButton()
-      } catch (e) {
-        alert('Erro ao curtir: ' + e.message)
-      } finally {
-        likeBtn.disabled = false
-      }
-    })
-
-    // Renderiza comentários
-    function renderComments(comments) {
-      if (!comments ||!comments.length) {
-        commentsList.innerHTML = '<p style="color:#666">Seja o primeiro a comentar!</p>'
-        return
-      }
-
-      commentsList.innerHTML = comments.map(c => `
-        <div class="comment">
-          <div class="comment-header">
-            <span class="author">${escapeHtml(c.author_name)}</span>
-            <span class="date">${new Date(c.created_at).toLocaleString('pt-BR')}</span>
-          </div>
-          <p>${escapeHtml(c.content)}</p>
-        </div>
-      `).join('')
-    }
-
-    // Envia comentário
-    commentForm.addEventListener('submit', async (e) => {
-      e.preventDefault()
-      const btn = e.target.querySelector('button')
-      const author = document.getElementById('authorInput').value.trim()
-      const content = document.getElementById('contentInput').value.trim()
-
-      erroDiv.textContent = ''
-      btn.disabled = true
-      try {
-        await callApi('add-comment', {
-          post_id: currentPostId,
-          author_name: author,
-          content: content
-        })
-
-        e.target.reset()
-        // Recarrega só os comentários
-        const comments = await callApi('list-comments', { post_id: currentPostId })
-        renderComments(comments)
-      } catch (e) {
-        erroDiv.textContent = e.message
-      } finally {
-        btn.disabled = false
-      }
-    })
-
-    function escapeHtml(text) {
-      const div = document.createElement('div')
-      div.textContent = text
-      return div.innerHTML
-    }
-
-    loadPost()
-  </script>
 </body>
 </html>
